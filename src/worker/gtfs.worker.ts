@@ -4,6 +4,11 @@ import type { GtfsSqlJsOptions, Row, SqlValue } from 'gtfs-sqljs';
 import { createSqlJsAdapter } from 'gtfs-sqljs/adapters/sql-js';
 import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { IndexedDBCacheStore } from './IndexedDBCacheStore';
+import {
+  getLastFeedInfo,
+  getLastFeedSnapshot,
+  saveLastFeedSnapshot,
+} from './lastFeedStore';
 import type { FeedSummary, GtfsWorkerApi, LoadOptions, ProgressInfo, StopLight } from './api';
 
 type FactoryOptions = Omit<GtfsSqlJsOptions, 'zipPath' | 'database'>;
@@ -104,6 +109,16 @@ async function closeCurrent(): Promise<void> {
   }
 }
 
+async function saveSnapshot(title: string, rtUrls: string[]): Promise<void> {
+  // Best-effort: a failed snapshot (quota, private mode) must not fail the load.
+  try {
+    const data = await instance().export();
+    await saveLastFeedSnapshot({ data, title, rtUrls, savedAt: Date.now() });
+  } catch {
+    // no snapshot — "reload last feed" just won't be instant
+  }
+}
+
 function rethrowWithMemoryHint(error: unknown): never {
   const message = error instanceof Error ? error.message : String(error);
   if (/memory|allocat|out of bounds|OOM/i.test(message)) {
@@ -122,7 +137,9 @@ const api: GtfsWorkerApi = {
     } catch (error) {
       rethrowWithMemoryHint(error);
     }
-    return summarize(rtUrls.length > 0);
+    const summary = await summarize(rtUrls.length > 0);
+    await saveSnapshot(options?.title ?? zipUrl, rtUrls);
+    return summary;
   },
 
   async loadFromZipData(bytes, rtUrls, onProgress, options) {
@@ -132,7 +149,38 @@ const api: GtfsWorkerApi = {
     } catch (error) {
       rethrowWithMemoryHint(error);
     }
-    return summarize(rtUrls.length > 0);
+    const summary = await summarize(rtUrls.length > 0);
+    await saveSnapshot(options?.title ?? 'local file', rtUrls);
+    return summary;
+  },
+
+  async getLastFeedInfo() {
+    try {
+      return await getLastFeedInfo();
+    } catch {
+      return null;
+    }
+  },
+
+  async restoreLastFeed(onProgress) {
+    const snapshot = await getLastFeedSnapshot();
+    if (!snapshot) throw new Error('No saved feed to restore');
+    await closeCurrent();
+    onProgress({
+      phase: 'loading_from_cache',
+      currentFile: null,
+      filesCompleted: 0,
+      totalFiles: 0,
+      rowsProcessed: 0,
+      totalRows: 0,
+      percentComplete: 50,
+      message: `Restoring ${snapshot.title} from cache…`,
+    });
+    gtfs = await GtfsSqlJs.fromDatabase(snapshot.data, {
+      adapter: await createSqlJsAdapter({ locateFile: () => sqlWasmUrl }),
+      realtimeFeedUrls: snapshot.rtUrls,
+    });
+    return summarize(snapshot.rtUrls.length > 0);
   },
 
   getAgencies: () => instance().getAgencies(),
@@ -155,7 +203,7 @@ const api: GtfsWorkerApi = {
 
   async listAllStopsLight() {
     const rows = await rawQuery(
-      `SELECT stop_id, stop_name, stop_code, stop_lat, stop_lon
+      `SELECT stop_id, stop_name, stop_code, stop_lat, stop_lon, parent_station
        FROM stops
        WHERE stop_name IS NOT NULL AND stop_name != ''`
     );
@@ -166,6 +214,8 @@ const api: GtfsWorkerApi = {
         stop_code: r.stop_code == null ? null : String(r.stop_code),
         stop_lat: r.stop_lat == null ? null : Number(r.stop_lat),
         stop_lon: r.stop_lon == null ? null : Number(r.stop_lon),
+        parent_station:
+          r.parent_station == null || r.parent_station === '' ? null : String(r.parent_station),
       })
     );
   },

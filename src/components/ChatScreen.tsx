@@ -8,6 +8,13 @@ import type { StopIndex } from '../search/stopIndex';
 import { describeAgentError, runAgentTurn } from '../llm/agent';
 import { executeTool, TOOL_LABELS, type ToolContext } from '../llm/tools';
 import { getApiKey, getModel } from '../lib/settings';
+import {
+  addUsage,
+  EMPTY_USAGE,
+  formatCost,
+  formatTokens,
+  type UsageTotals,
+} from '../lib/pricing';
 
 interface DisplayMessage {
   id: number;
@@ -30,6 +37,7 @@ export function ChatScreen({ worker, stopIndex, summary, onOpenSettings, setting
   const [busy, setBusy] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<UsageTotals>(EMPTY_USAGE);
 
   const historyRef = useRef<Anthropic.MessageParam[]>([]);
   const toolContextRef = useRef<ToolContext | null>(null);
@@ -72,10 +80,11 @@ export function ChatScreen({ worker, stopIndex, summary, onOpenSettings, setting
       });
     };
 
+    const model = getModel();
     try {
       const result = await runAgentTurn({
         apiKey: getApiKey(),
-        model: getModel(),
+        model,
         summary,
         history: historyRef.current,
         executeTool: (name, toolInput) => executeTool(toolContextRef.current!, name, toolInput),
@@ -86,6 +95,7 @@ export function ChatScreen({ worker, stopIndex, summary, onOpenSettings, setting
             const label = TOOL_LABELS[names[0]] ?? `Running ${names[0]}…`;
             setActiveTool(names.length > 1 ? `${label} (+${names.length - 1} more)` : label);
           },
+          onUsage: (turnUsage) => setUsage((prev) => addUsage(prev, turnUsage, model)),
         },
       });
       historyRef.current.push(...result.messages);
@@ -105,7 +115,17 @@ export function ChatScreen({ worker, stopIndex, summary, onOpenSettings, setting
     }
   }, [input, busy, hasKey, summary]);
 
+  const resetConversation = useCallback(() => {
+    if (busy) return;
+    setMessages([]);
+    historyRef.current = [];
+    setUsage(EMPTY_USAGE);
+    setError(null);
+    setActiveTool(null);
+  }, [busy]);
+
   const agencyNames = summary.agencies.map((a) => a.name).join(', ');
+  const totalIn = usage.inputTokens + usage.cacheWriteTokens + usage.cacheReadTokens;
 
   return (
     <div className="chat-screen">
@@ -118,10 +138,31 @@ export function ChatScreen({ worker, stopIndex, summary, onOpenSettings, setting
             {summary.hasRealtime ? ' · realtime ✓' : ''}
           </p>
         </div>
-        <button className="icon-button" onClick={onOpenSettings} aria-label="Open settings">
-          ⚙
-        </button>
+        <div className="chat-header-actions">
+          {messages.length > 0 && (
+            <button
+              onClick={resetConversation}
+              disabled={busy}
+              title="Clear the conversation and start fresh"
+            >
+              ↺ New chat
+            </button>
+          )}
+          <button className="icon-button" onClick={onOpenSettings} aria-label="Open settings">
+            ⚙
+          </button>
+        </div>
       </header>
+
+      {totalIn + usage.outputTokens > 0 && (
+        <div
+          className="usage-bar"
+          title={`input: ${usage.inputTokens.toLocaleString()} · cache write: ${usage.cacheWriteTokens.toLocaleString()} · cache read: ${usage.cacheReadTokens.toLocaleString()} · output: ${usage.outputTokens.toLocaleString()}`}
+        >
+          ⬇ {formatTokens(totalIn)} in · ⬆ {formatTokens(usage.outputTokens)} out · ≈{' '}
+          {formatCost(usage.costUsd)}
+        </div>
+      )}
 
       {error && (
         <div className="banner banner-error">

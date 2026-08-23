@@ -101,6 +101,11 @@ button.danger {
   border-color: var(--info-border);
 }
 
+.reload-last-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .progress-panel {
   margin-top: 32px;
 }
@@ -182,6 +187,20 @@ button.danger {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.usage-bar {
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 6px 4px 0;
+  cursor: default;
 }
 
 .chat-messages {

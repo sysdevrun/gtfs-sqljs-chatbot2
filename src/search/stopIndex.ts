@@ -12,6 +12,7 @@ export interface StopSearchResult {
   stop_code: string | null;
   stop_lat: number | null;
   stop_lon: number | null;
+  parent_station: string | null;
   score: number;
 }
 
@@ -22,7 +23,7 @@ export class StopIndex {
     this.index = new MiniSearch<StopLight>({
       idField: 'stop_id',
       fields: ['stop_name', 'stop_code'],
-      storeFields: ['stop_id', 'stop_name', 'stop_code', 'stop_lat', 'stop_lon'],
+      storeFields: ['stop_id', 'stop_name', 'stop_code', 'stop_lat', 'stop_lon', 'parent_station'],
       processTerm: normalize,
       searchOptions: {
         prefix: true,
@@ -46,6 +47,7 @@ export class StopIndex {
       stop_code: (r.stop_code ?? null) as string | null,
       stop_lat: (r.stop_lat ?? null) as number | null,
       stop_lon: (r.stop_lon ?? null) as number | null,
+      parent_station: (r.parent_station ?? null) as string | null,
       score: r.score,
     }));
   }

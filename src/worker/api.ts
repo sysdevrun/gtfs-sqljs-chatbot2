@@ -38,11 +38,19 @@ export interface StopLight {
   stop_code: string | null;
   stop_lat: number | null;
   stop_lon: number | null;
+  parent_station: string | null;
 }
 
 export interface LoadOptions {
   /** Retry knob for very large feeds: skip shapes.txt to reduce memory. */
   skipShapes?: boolean;
+  /** Human-readable feed name, stored with the last-feed snapshot. */
+  title?: string;
+}
+
+export interface LastFeedInfo {
+  title: string;
+  savedAt: number;
 }
 
 /** API exposed by the GTFS worker via Comlink. Every method is async. */
@@ -59,6 +67,14 @@ export interface GtfsWorkerApi {
     onProgress: (progress: ProgressInfo) => void,
     options?: LoadOptions
   ): Promise<FeedSummary>;
+
+  /** Info about the stored last-feed snapshot, or null if none exists. */
+  getLastFeedInfo(): Promise<LastFeedInfo | null>;
+  /**
+   * Restore the last feed from its IndexedDB snapshot — no network at all.
+   * Throws if no snapshot exists.
+   */
+  restoreLastFeed(onProgress: (progress: ProgressInfo) => void): Promise<FeedSummary>;
 
   getAgencies(): Promise<Agency[]>;
   getStops(filters?: StopFilters): Promise<Stop[]>;
