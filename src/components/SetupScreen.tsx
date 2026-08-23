@@ -8,8 +8,7 @@ import {
   type GtfsSelectionResult,
 } from 'react-gtfs-selector';
 import 'react-gtfs-selector/style.css';
-import type { ProgressInfo } from '../worker/api';
-import { getLastFeed, type LastFeed } from '../lib/settings';
+import type { LastFeedInfo, ProgressInfo } from '../worker/api';
 
 const SELECTOR_TABS = [fileTab, urlTab, transportDataGouvFr, mobilityDataCsv];
 
@@ -22,11 +21,19 @@ interface Props {
   loading: boolean;
   progress: ProgressInfo | null;
   error: string | null;
+  lastFeedInfo: LastFeedInfo | null;
+  onReloadLast: () => void;
   onLoadFeed: (request: FeedRequest) => void;
 }
 
-export function SetupScreen({ loading, progress, error, onLoadFeed }: Props) {
-  const [lastFeed] = useState<LastFeed | null>(() => getLastFeed());
+export function SetupScreen({
+  loading,
+  progress,
+  error,
+  lastFeedInfo,
+  onReloadLast,
+  onLoadFeed,
+}: Props) {
   const [lastSelection, setLastSelection] = useState<GtfsSelectionResult | null>(null);
 
   const handleSelect = useCallback(
@@ -36,18 +43,6 @@ export function SetupScreen({ loading, progress, error, onLoadFeed }: Props) {
     },
     [onLoadFeed]
   );
-
-  const reloadLast = useCallback(() => {
-    if (!lastFeed) return;
-    const selection: GtfsSelectionResult = {
-      type: 'url',
-      url: lastFeed.url,
-      title: lastFeed.title,
-      gtfsRtUrls: lastFeed.gtfsRtUrls,
-    };
-    setLastSelection(selection);
-    onLoadFeed({ selection });
-  }, [lastFeed, onLoadFeed]);
 
   const retryWithoutShapes = useCallback(() => {
     if (!lastSelection) return;
@@ -65,9 +60,10 @@ export function SetupScreen({ loading, progress, error, onLoadFeed }: Props) {
         </p>
       </header>
 
-      {lastFeed && !loading && (
-        <button className="reload-last" onClick={reloadLast}>
-          ↻ Reload last feed: {lastFeed.title}
+      {lastFeedInfo && !loading && (
+        <button className="reload-last" onClick={onReloadLast}>
+          ↻ Reload last feed: {lastFeedInfo.title}{' '}
+          <span className="reload-last-note">(instant, from cache)</span>
         </button>
       )}
 

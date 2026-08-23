@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Comlink from 'comlink';
-import type { FeedSummary, GtfsWorkerApi, ProgressInfo } from './worker/api';
+import type { FeedSummary, GtfsWorkerApi, LastFeedInfo, ProgressInfo } from './worker/api';
 import { StopIndex } from './search/stopIndex';
 import { proxied } from './lib/proxy';
-import { setLastFeed } from './lib/settings';
+import { getLastFeed, setLastFeed } from './lib/settings';
 import { SetupScreen, type FeedRequest } from './components/SetupScreen';
 import { ChatScreen } from './components/ChatScreen';
 import { SettingsModal } from './components/SettingsModal';
@@ -29,9 +29,12 @@ export function App() {
   const [settingsVersion, setSettingsVersion] = useState(0);
   // Key forcing a fresh ChatScreen (new history) when a new feed is loaded.
   const [feedGeneration, setFeedGeneration] = useState(0);
+  const [lastFeedInfo, setLastFeedInfo] = useState<LastFeedInfo | null>(null);
 
   useEffect(() => {
+    void api.getLastFeedInfo().then(setLastFeedInfo, () => {});
     return () => workerRef.current?.worker.terminate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadFeed = useCallback(
@@ -53,7 +56,7 @@ export function App() {
             Comlink.transfer(bytes, [bytes.buffer]),
             [],
             onProgress,
-            options
+            { ...options, title: selection.fileName }
           );
         } else {
           const rtUrls = (selection.gtfsRtUrls ?? []).map(proxied);
@@ -61,7 +64,7 @@ export function App() {
             proxied(selection.url),
             rtUrls,
             onProgress,
-            options
+            { ...options, title: selection.title }
           );
           setLastFeed({
             url: selection.url,
@@ -73,6 +76,7 @@ export function App() {
         setStopIndex(new StopIndex(stops));
         setSummary(feedSummary);
         setFeedGeneration((g) => g + 1);
+        void api.getLastFeedInfo().then(setLastFeedInfo, () => {});
       } catch (error) {
         setLoadError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -82,6 +86,39 @@ export function App() {
     },
     [api]
   );
+
+  const restoreLastFeed = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    setProgress(null);
+    setSummary(null);
+    setStopIndex(null);
+    const onProgress = Comlink.proxy((p: ProgressInfo) => setProgress(p));
+    try {
+      let feedSummary: FeedSummary;
+      try {
+        feedSummary = await api.restoreLastFeed(onProgress);
+      } catch (restoreError) {
+        // Snapshot missing or corrupted — fall back to re-downloading the
+        // last URL feed if we know one.
+        const lastUrlFeed = getLastFeed();
+        if (!lastUrlFeed) throw restoreError;
+        const rtUrls = (lastUrlFeed.gtfsRtUrls ?? []).map(proxied);
+        feedSummary = await api.loadFromZipUrl(proxied(lastUrlFeed.url), rtUrls, onProgress, {
+          title: lastUrlFeed.title,
+        });
+      }
+      const stops = await api.listAllStopsLight();
+      setStopIndex(new StopIndex(stops));
+      setSummary(feedSummary);
+      setFeedGeneration((g) => g + 1);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+      setProgress(null);
+    }
+  }, [api]);
 
   const changeFeed = useCallback(async () => {
     setSettingsOpen(false);
@@ -114,6 +151,8 @@ export function App() {
             loading={loading}
             progress={progress}
             error={loadError}
+            lastFeedInfo={lastFeedInfo}
+            onReloadLast={() => void restoreLastFeed()}
             onLoadFeed={(request) => void loadFeed(request)}
           />
           <button className="settings-fab" onClick={() => setSettingsOpen(true)}>

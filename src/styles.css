@@ -101,6 +101,11 @@ button.danger {
   border-color: var(--info-border);
 }
 
+.reload-last-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .progress-panel {
   margin-top: 32px;
 }
