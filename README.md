@@ -1,5 +1,7 @@
 # GTFS Chat
 
+**Live app: <https://sysdevrun.github.io/gtfs-sqljs-chatbot2/>**
+
 A fully static, browser-only chatbot for **any GTFS transit feed**. Pick a feed (search, URL, or drag & drop a ZIP), it loads into an in-browser SQLite database ([gtfs-sqljs](https://github.com/sysdevrun/gtfs-sqljs) in a Web Worker), and you chat with a Claude model that answers transit questions — stops, routes, next departures, realtime delays, alerts — by calling client-side tools that query that database.
 
 **No backend.** Deployed on GitHub Pages. **BYOK**: you paste your own Anthropic API key; it is stored in `localStorage` and sent only to `api.anthropic.com`, directly from your browser.
