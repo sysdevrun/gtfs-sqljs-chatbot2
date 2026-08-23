@@ -38,6 +38,7 @@ export interface StopLight {
   stop_code: string | null;
   stop_lat: number | null;
   stop_lon: number | null;
+  parent_station: string | null;
 }
 
 export interface LoadOptions {

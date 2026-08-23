@@ -189,6 +189,20 @@ button.danger {
   font-size: 13px;
 }
 
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.usage-bar {
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 6px 4px 0;
+  cursor: default;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;

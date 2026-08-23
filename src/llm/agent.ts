@@ -15,7 +15,8 @@ const STATIC_SYSTEM = `You are GTFS Chat, a transit assistant. A GTFS feed is lo
 
 Rules:
 - Always resolve stop names with the search_stops tool before calling any schedule tool. Never guess or invent stop IDs, route IDs, or trip IDs — they must come from tool results.
-- If several distinct stops plausibly match the user's query, ask the user which one they mean instead of picking arbitrarily.
+- Many feeds model one station as several stops (platforms/quays sharing a name or a parent_station). Treat these as ONE station: never ask the user to pick a platform. Pass any one of the stop IDs (prefer the parent_station id when shown) to get_stop_departures — it automatically covers the whole station, all platforms included.
+- Only ask the user to disambiguate when matches are genuinely different places (different names or locations), not platforms of the same station.
 - Show times exactly as returned by the tools (the "time" fields, already formatted HH:MM in the feed's timezone). Never do time arithmetic yourself.
 - Mark realtime estimates as such (e.g. "(live)") and mention delays when the tools report them. Report canceled trips and skipped stops when flagged.
 - Tool results with an empty list include a "hint" field explaining why — relay that reason to the user.
@@ -60,6 +61,8 @@ export interface AgentEvents {
   onTextDelta: (delta: string) => void;
   /** Tools started executing (names in call order). */
   onToolStart: (names: string[]) => void;
+  /** Usage of one completed API call — fired per loop iteration so partial turns still count. */
+  onUsage: (usage: Anthropic.Usage) => void;
 }
 
 export interface AgentTurnResult {
@@ -96,6 +99,7 @@ export async function runAgentTurn(options: {
     stream.on('text', (delta) => events.onTextDelta(delta));
 
     const message = await stream.finalMessage();
+    events.onUsage(message.usage);
 
     if (message.stop_reason === 'pause_turn') {
       appended.push({ role: 'assistant', content: message.content });

@@ -203,7 +203,7 @@ const api: GtfsWorkerApi = {
 
   async listAllStopsLight() {
     const rows = await rawQuery(
-      `SELECT stop_id, stop_name, stop_code, stop_lat, stop_lon
+      `SELECT stop_id, stop_name, stop_code, stop_lat, stop_lon, parent_station
        FROM stops
        WHERE stop_name IS NOT NULL AND stop_name != ''`
     );
@@ -214,6 +214,8 @@ const api: GtfsWorkerApi = {
         stop_code: r.stop_code == null ? null : String(r.stop_code),
         stop_lat: r.stop_lat == null ? null : Number(r.stop_lat),
         stop_lon: r.stop_lon == null ? null : Number(r.stop_lon),
+        parent_station:
+          r.parent_station == null || r.parent_station === '' ? null : String(r.parent_station),
       })
     );
   },

@@ -114,11 +114,30 @@ const implementations: Record<string, ToolImpl> = {
   async search_stops(ctx, input) {
     const query = asString(input.query, 'query');
     const limit = clampLimit(input.limit, 8);
-    const results = ctx.stopIndex.search(query, limit).map((r) => ({
-      stop_id: r.stop_id,
-      stop_name: r.stop_name,
-      ...(r.stop_code ? { stop_code: r.stop_code } : {}),
-    }));
+    // Group platforms/quays of the same station (shared parent_station) into
+    // one entry, so the model sees stations, not eight identical quays.
+    const raw = ctx.stopIndex.search(query, limit * 4);
+    const groups = new Map<string, { members: typeof raw; parent: string | null }>();
+    for (const r of raw) {
+      const key = r.parent_station ?? r.stop_id;
+      const group = groups.get(key);
+      if (group) group.members.push(r);
+      else groups.set(key, { members: [r], parent: r.parent_station });
+    }
+    const results = [...groups.entries()].slice(0, limit).map(([key, group]) => {
+      // Prefer the parent station entry itself when it matched too.
+      const best = group.members.find((m) => m.stop_id === key) ?? group.members[0];
+      const platformCount = group.members.filter((m) => m.parent_station === key).length;
+      return {
+        // The station id covers every platform in get_stop_departures.
+        stop_id: key,
+        stop_name: best.stop_name,
+        ...(best.stop_code && platformCount <= 1 ? { stop_code: best.stop_code } : {}),
+        ...(group.parent || platformCount > 1
+          ? { station: true, ...(platformCount > 1 ? { platforms: platformCount } : {}) }
+          : {}),
+      };
+    });
     if (results.length === 0) {
       return { results: [], hint: 'no stop matches this query; try fewer or different words' };
     }
@@ -195,13 +214,20 @@ const implementations: Record<string, ToolImpl> = {
     const now = nowUnix();
     await maybeRefreshRealtime(ctx);
 
-    // A parent station's departures live on its child platforms/quays.
-    const childRows = await ctx.worker.rawQuery(
-      `SELECT stop_id FROM stops WHERE parent_station = ?`,
+    // Expand to the whole station: if the given stop is a platform, walk up to
+    // its parent station, then include the parent and every sibling platform.
+    const parentRows = await ctx.worker.rawQuery(
+      `SELECT parent_station FROM stops WHERE stop_id = ?`,
       [stopId]
     );
-    const stopIds = [stopId, ...childRows.map((r) => String(r.stop_id))];
-    const stopIdSet = new Set(stopIds);
+    const parent = parentRows[0]?.parent_station ? String(parentRows[0].parent_station) : null;
+    const stationId = parent ?? stopId;
+    const childRows = await ctx.worker.rawQuery(
+      `SELECT stop_id FROM stops WHERE parent_station = ?`,
+      [stationId]
+    );
+    const stopIdSet = new Set([stopId, stationId, ...childRows.map((r) => String(r.stop_id))]);
+    const stopIds = [...stopIdSet];
 
     const stopTimes = await ctx.worker.getStopTimes({ stopId: stopIds, date });
     if (stopTimes.length === 0) {
@@ -410,7 +436,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'search_stops',
     description:
-      'Fuzzy-search stops by name or code. ALWAYS use this to resolve a stop name to a stop_id before calling any schedule tool — never guess stop IDs. Handles typos and missing accents.',
+      'Fuzzy-search stops by name or code. ALWAYS use this to resolve a stop name to a stop_id before calling any schedule tool — never guess stop IDs. Handles typos and missing accents. Platforms of one station are grouped into a single entry (station: true) whose stop_id covers every platform.',
     input_schema: {
       type: 'object',
       properties: {
@@ -448,7 +474,7 @@ export const toolDefinitions: Anthropic.Tool[] = [
   {
     name: 'get_stop_departures',
     description:
-      'Next departures from a stop (includes child platforms of a station). Times are HH:MM in the feed timezone, realtime-resolved when available. Requires a stop_id from search_stops or find_nearby_stops.',
+      'Next departures from a stop or station. Any stop_id works: a platform id is automatically expanded to its whole station (parent + all sibling platforms). Times are HH:MM in the feed timezone, realtime-resolved when available. Requires a stop_id from search_stops or find_nearby_stops.',
     input_schema: {
       type: 'object',
       properties: {
