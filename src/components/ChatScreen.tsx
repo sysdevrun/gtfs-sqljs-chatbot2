@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { Remote } from 'comlink';
 import type { FeedSummary, GtfsWorkerApi } from '../worker/api';
@@ -148,7 +149,7 @@ export function ChatScreen({ worker, stopIndex, summary, onOpenSettings, setting
         {messages.map((message) => (
           <div key={message.id} className={`chat-bubble chat-bubble-${message.role}`}>
             {message.role === 'assistant' ? (
-              <ReactMarkdown>{message.text}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
             ) : (
               <p>{message.text}</p>
             )}
